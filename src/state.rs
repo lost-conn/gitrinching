@@ -1,7 +1,5 @@
-use std::collections::HashMap;
-
 /// A single commit in the graph.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CommitNode {
     pub oid: String,
     pub short_oid: String,
@@ -27,51 +25,40 @@ pub struct GraphEdge {
     pub color_index: usize,
 }
 
-/// Full graph state, shared with the render thread.
+/// Full graph state.
 #[derive(Clone, Debug)]
 pub struct GraphState {
     pub commits: Vec<CommitNode>,
-    pub edges: Vec<GraphEdge>,
-    pub oid_to_index: HashMap<String, usize>,
-    #[allow(dead_code)]
     pub max_lanes: usize,
-    // View transform
-    pub offset_x: f32,
-    pub offset_y: f32,
-    pub zoom: f32,
-    pub width: u32,
-    pub height: u32,
-    pub selected_oid: Option<String>,
-    #[allow(dead_code)]
-    pub dirty: bool,
+    pub row_graph: Vec<RowGraphData>,
+}
+
+/// Per-row rendering data for the graph column.
+#[derive(Clone, Debug)]
+pub struct RowGraphData {
+    pub lanes: Vec<LaneSegment>,
+    /// Horizontal connectors: (from_lane, to_lane, color_index)
+    pub connectors: Vec<(usize, usize, usize)>,
+}
+
+/// What to draw in a single lane cell for one row.
+#[derive(Clone, Debug, Default)]
+pub struct LaneSegment {
+    pub has_node: bool,
+    pub line_top: bool,
+    pub line_bottom: bool,
+    pub color_index: usize,
+}
+
+impl LaneSegment {
+    pub fn is_active(&self) -> bool {
+        self.has_node || self.line_top || self.line_bottom
+    }
 }
 
 // Layout constants
-pub const NODE_RADIUS: f32 = 8.0;
-pub const LANE_WIDTH: f32 = 30.0;
-pub const ROW_HEIGHT: f32 = 40.0;
-
-/// Convert a commit's lane/row to pixel position (before view transform).
-pub fn commit_position(lane: usize, row: usize) -> (f32, f32) {
-    let x = lane as f32 * LANE_WIDTH;
-    let y = row as f32 * ROW_HEIGHT;
-    (x, y)
-}
-
-/// Apply view transform (zoom + pan) to a world coordinate.
-pub fn world_to_screen(wx: f32, wy: f32, state: &GraphState) -> (f32, f32) {
-    let sx = wx * state.zoom + state.offset_x;
-    let sy = wy * state.zoom + state.offset_y;
-    (sx, sy)
-}
-
-/// Inverse: screen coordinate to world coordinate.
-#[allow(dead_code)]
-pub fn screen_to_world(sx: f32, sy: f32, state: &GraphState) -> (f32, f32) {
-    let wx = (sx - state.offset_x) / state.zoom;
-    let wy = (sy - state.offset_y) / state.zoom;
-    (wx, wy)
-}
+pub const LANE_WIDTH: f32 = 24.0;
+pub const ROW_HEIGHT: f32 = 32.0;
 
 /// A single repo view with its own graph state.
 #[derive(Clone, Debug)]
@@ -86,15 +73,11 @@ pub struct RepoView {
 #[derive(Clone, Debug)]
 pub struct AppState {
     pub repos: Vec<RepoView>,
-    pub dirty: bool,
 }
 
 impl AppState {
     pub fn new() -> Self {
-        Self {
-            repos: Vec::new(),
-            dirty: true,
-        }
+        Self { repos: Vec::new() }
     }
 }
 
@@ -111,3 +94,8 @@ pub const LANE_COLORS: &[(u8, u8, u8)] = &[
     (126, 154, 206),  // light blue
     (106, 153, 85),   // dark green
 ];
+
+pub fn lane_color_hex(index: usize) -> String {
+    let (r, g, b) = LANE_COLORS[index % LANE_COLORS.len()];
+    format!("#{r:02x}{g:02x}{b:02x}")
+}
