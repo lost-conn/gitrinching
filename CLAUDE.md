@@ -14,7 +14,7 @@ No tests exist yet. The `git2` crate uses vendored libgit2, so no system libgit2
 
 ## Dependencies
 
-- **rinch** — local GUI framework at `../rinch/crates/rinch` (features: desktop, components, theme, debug, file-dialogs). Not published; must exist as a sibling directory.
+- **rinch** — GUI framework from `https://github.com/joeleaver/rinch` (features: desktop, components, theme, debug, file-dialogs). Fetched automatically as a git dependency.
 - **git2** — git repository access with vendored libgit2.
 
 Rust edition 2024.
