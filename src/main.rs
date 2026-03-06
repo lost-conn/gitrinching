@@ -222,6 +222,20 @@ fn build_visible_panes(app: &AppState, enabled: &[bool]) -> Vec<RepoPane> {
         .collect()
 }
 
+/// Compute the visible slice of rows for virtualization.
+fn visible_rows(rows: &[CommitRow], scroll_top: f64) -> Vec<(usize, CommitRow)> {
+    let overscan = 10;
+    let visible_count = 50;
+    let first = (scroll_top as f32 / ROW_HEIGHT).floor() as usize;
+    let start = first.saturating_sub(overscan);
+    let end = rows.len().min(first + visible_count + overscan);
+    rows[start..end]
+        .iter()
+        .enumerate()
+        .map(|(i, r)| (start + i, r.clone()))
+        .collect()
+}
+
 fn main() {
     let repo_path = std::env::args().nth(1).unwrap_or_else(|| ".".to_string());
 
@@ -241,7 +255,9 @@ fn main() {
             let repo_path_sig = Signal::new(repo_path.clone());
             let status_msg = Signal::new(String::new());
             let selected_commit = Signal::new(Option::<CommitNode>::None);
+            let selected_row_idx = Signal::new(Option::<usize>::None);
             let drawer_open = Signal::new(false);
+            let scroll_top = Signal::new(0.0f64);
             let repo_panes: Signal<Vec<RepoPane>> = Signal::new(Vec::new());
             // All panes (for sidebar display, includes disabled)
             let all_panes: Signal<Vec<RepoPane>> = Signal::new(Vec::new());
@@ -297,7 +313,7 @@ fn main() {
             let load_repo_btn = load_repo.clone();
 
             rsx! {
-                div { style: "display: flex; flex-direction: column; height: 100vh; color: #ccc; font-family: monospace; background: #1e1e1e;",
+                div { style: "display: flex; flex-direction: column; height: 100%; color: #ccc; font-family: monospace; background: #1e1e1e;",
                     // Toolbar
                     div { style: "display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #2d2d2d; border-bottom: 1px solid #444; flex-shrink: 0;",
                         span { style: "font-weight: bold; color: #61afef;", "gitrinching" }
@@ -395,6 +411,7 @@ fn main() {
                         // Repo panes area — each repo gets its own scrollable list
                         div { style: "flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0;",
                             for pane in repo_panes.get() {
+                                let pane_row_count = pane.rows.len();
                                 div {
                                     key: pane.path.clone(),
                                     style: "flex: 1; display: flex; flex-direction: column; min-height: 0; border-bottom: 2px solid #444;",
@@ -411,8 +428,9 @@ fn main() {
                                     },
                                         {pane.name.clone()}
                                     }
-                                    // Scrollable commit list
+                                    // Scrollable commit list (virtualized)
                                     div { style: "flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0;",
+                                        onscroll: move |y: f64| { scroll_top.set(y); },
                                         // Column header
                                         div { style: "display: flex; align-items: center; padding: 4px 8px; background: #252525; border-bottom: 1px solid #333; font-size: 11px; color: #888; position: sticky; top: 0; z-index: 10; overflow: hidden; min-width: 0;",
                                             div { style: {
@@ -424,71 +442,82 @@ fn main() {
                                             div { style: "width: 120px; flex-shrink: 0; padding-left: 8px;", "Author" }
                                             div { style: "width: 110px; flex-shrink: 0; padding-left: 8px;", "Date" }
                                         }
-                                        // Rows
-                                        for row in pane.rows.clone() {
-                                            div {
-                                                key: row.oid.clone(),
-                                                style: {
-                                                    let oid = row.oid.clone();
-                                                    move || {
-                                                        let is_selected = selected_commit.get()
-                                                            .as_ref()
-                                                            .map(|c| c.oid == oid)
-                                                            .unwrap_or(false);
-                                                        let bg = if is_selected { "#2a2d3e" } else { "transparent" };
-                                                        format!(
-                                                            "display: flex; align-items: center; height: {}px; \
-                                                             border-bottom: 1px solid #2a2a2a; cursor: pointer; \
-                                                             background: {}; padding-right: 8px; \
-                                                             overflow: hidden; min-width: 0;",
-                                                            ROW_HEIGHT, bg
-                                                        )
-                                                    }
-                                                },
-                                                onclick: {
-                                                    let commit = row.commit.clone();
-                                                    move || {
-                                                        selected_commit.set(Some(commit.clone()));
-                                                        drawer_open.set(true);
-                                                    }
-                                                },
-                                                // Graph column
+                                        // Full-height container for scrollbar — rows are absolutely positioned
+                                        div { style: format!("position: relative; height: {}px;", pane_row_count as f32 * ROW_HEIGHT),
+                                            // Selection highlight — single reactive element instead of per-row closures
+                                            div { style: {move || {
+                                                if let Some(idx) = selected_row_idx.get() {
+                                                    let top = idx as f32 * ROW_HEIGHT;
+                                                    format!(
+                                                        "position: absolute; top: {}px; left: 0; right: 0; height: {}px; \
+                                                         background: #2a2d3e; pointer-events: none; z-index: 0;",
+                                                        top, ROW_HEIGHT
+                                                    )
+                                                } else {
+                                                    "display: none;".to_string()
+                                                }
+                                            }}}
+                                            // Virtualized rows — only render visible slice
+                                            for (row_idx, row) in visible_rows(&pane.rows, scroll_top.get()) {
                                                 div {
+                                                    key: row.oid.clone(),
                                                     style: {
-                                                        let gw = row.graph_width;
-                                                        format!("width: {}px; height: {}px; flex-shrink: 0; position: relative;", gw, ROW_HEIGHT)
+                                                        let top = row_idx as f32 * ROW_HEIGHT;
+                                                        format!(
+                                                            "position: absolute; top: {}px; left: 0; right: 0; \
+                                                             display: flex; align-items: center; height: {}px; \
+                                                             border-bottom: 1px solid #2a2a2a; cursor: pointer; \
+                                                             padding-right: 8px; overflow: hidden; z-index: 1;",
+                                                            top, ROW_HEIGHT
+                                                        )
                                                     },
-                                                    for elem in row.graph_elements.clone() {
-                                                        div { style: elem.style.clone() }
-                                                    }
-                                                }
-                                                // Short OID
-                                                div { style: "width: 70px; flex-shrink: 0; padding-left: 8px; color: #61afef; font-size: 12px;",
-                                                    {row.short_oid.clone()}
-                                                }
-                                                // Message + branch labels
-                                                div { style: "flex: 1; padding-left: 8px; font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; min-width: 0;",
-                                                    for label in row.branch_labels.clone() {
-                                                        span { style: "color: #1e1e1e; background: #ffd700; border-radius: 3px; padding: 1px 5px; font-size: 10px; font-weight: bold; flex-shrink: 0;",
-                                                            {label.clone()}
+                                                    onclick: {
+                                                        let commit = row.commit.clone();
+                                                        let idx = row_idx;
+                                                        move || {
+                                                            selected_row_idx.set(Some(idx));
+                                                            selected_commit.set(Some(commit.clone()));
+                                                            drawer_open.set(true);
+                                                        }
+                                                    },
+                                                    // Graph column
+                                                    div {
+                                                        style: {
+                                                            let gw = row.graph_width;
+                                                            format!("width: {}px; height: {}px; flex-shrink: 0; position: relative;", gw, ROW_HEIGHT)
+                                                        },
+                                                        for elem in row.graph_elements.clone() {
+                                                            div { style: elem.style.clone() }
                                                         }
                                                     }
-                                                    if row.is_head {
-                                                        span { style: "color: #1e1e1e; background: #61afef; border-radius: 3px; padding: 1px 5px; font-size: 10px; font-weight: bold; flex-shrink: 0;",
-                                                            "HEAD"
+                                                    // Short OID
+                                                    div { style: "width: 70px; flex-shrink: 0; padding-left: 8px; color: #61afef; font-size: 12px;",
+                                                        {row.short_oid.clone()}
+                                                    }
+                                                    // Message + branch labels
+                                                    div { style: "flex: 1; padding-left: 8px; font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; min-width: 0;",
+                                                        for label in row.branch_labels.clone() {
+                                                            span { style: "color: #1e1e1e; background: #ffd700; border-radius: 3px; padding: 1px 5px; font-size: 10px; font-weight: bold; flex-shrink: 0;",
+                                                                {label.clone()}
+                                                            }
+                                                        }
+                                                        if row.is_head {
+                                                            span { style: "color: #1e1e1e; background: #61afef; border-radius: 3px; padding: 1px 5px; font-size: 10px; font-weight: bold; flex-shrink: 0;",
+                                                                "HEAD"
+                                                            }
+                                                        }
+                                                        span { style: "flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0;",
+                                                            {row.message.clone()}
                                                         }
                                                     }
-                                                    span { style: "flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0;",
-                                                        {row.message.clone()}
+                                                    // Author
+                                                    div { style: "width: 120px; flex-shrink: 0; padding-left: 8px; font-size: 12px; color: #98c379; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;",
+                                                        {row.author.clone()}
                                                     }
-                                                }
-                                                // Author
-                                                div { style: "width: 120px; flex-shrink: 0; padding-left: 8px; font-size: 12px; color: #98c379; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;",
-                                                    {row.author.clone()}
-                                                }
-                                                // Date
-                                                div { style: "width: 110px; flex-shrink: 0; padding-left: 8px; font-size: 11px; color: #888;",
-                                                    {row.date.clone()}
+                                                    // Date
+                                                    div { style: "width: 110px; flex-shrink: 0; padding-left: 8px; font-size: 11px; color: #888;",
+                                                        {row.date.clone()}
+                                                    }
                                                 }
                                             }
                                         }
