@@ -313,7 +313,7 @@ fn main() {
             let load_repo_btn = load_repo.clone();
 
             rsx! {
-                div { style: "display: flex; flex-direction: column; height: 100%; color: #ccc; font-family: monospace; background: #1e1e1e;",
+                div { style: "display: flex; flex-direction: column; width: 100vw; height: 100vh; color: #ccc; font-family: monospace; background: #1e1e1e;",
                     // Toolbar
                     div { style: "display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #2d2d2d; border-bottom: 1px solid #444; flex-shrink: 0;",
                         span { style: "font-weight: bold; color: #61afef;", "gitrinching" }
@@ -428,20 +428,20 @@ fn main() {
                                     },
                                         {pane.name.clone()}
                                     }
+                                    // Column header (outside scroll container to avoid z-index issues)
+                                    div { style: "display: flex; align-items: center; padding: 4px 8px; background: #252525; border-bottom: 1px solid #333; font-size: 11px; color: #888; overflow: hidden; min-width: 0; flex-shrink: 0;",
+                                        div { style: {
+                                            let gw = pane.graph_width;
+                                            format!("width: {}px; flex-shrink: 0;", gw)
+                                        }, "Graph" }
+                                        div { style: "width: 70px; flex-shrink: 0; padding-left: 8px;", "Hash" }
+                                        div { style: "flex: 1; padding-left: 8px; min-width: 0;", "Message" }
+                                        div { style: "width: 120px; flex-shrink: 0; padding-left: 8px;", "Author" }
+                                        div { style: "width: 110px; flex-shrink: 0; padding-left: 8px;", "Date" }
+                                    }
                                     // Scrollable commit list (virtualized)
                                     div { style: "flex: 1; overflow-y: auto; overflow-x: hidden; min-height: 0;",
                                         onscroll: move |y: f64| { scroll_top.set(y); },
-                                        // Column header
-                                        div { style: "display: flex; align-items: center; padding: 4px 8px; background: #252525; border-bottom: 1px solid #333; font-size: 11px; color: #888; position: sticky; top: 0; z-index: 10; overflow: hidden; min-width: 0;",
-                                            div { style: {
-                                                let gw = pane.graph_width;
-                                                format!("width: {}px; flex-shrink: 0;", gw)
-                                            }, "Graph" }
-                                            div { style: "width: 70px; flex-shrink: 0; padding-left: 8px;", "Hash" }
-                                            div { style: "flex: 1; padding-left: 8px; min-width: 0;", "Message" }
-                                            div { style: "width: 120px; flex-shrink: 0; padding-left: 8px;", "Author" }
-                                            div { style: "width: 110px; flex-shrink: 0; padding-left: 8px;", "Date" }
-                                        }
                                         // Full-height container for scrollbar — rows are absolutely positioned
                                         div { style: format!("position: relative; height: {}px;", pane_row_count as f32 * ROW_HEIGHT),
                                             // Selection highlight — single reactive element instead of per-row closures
@@ -450,7 +450,7 @@ fn main() {
                                                     let top = idx as f32 * ROW_HEIGHT;
                                                     format!(
                                                         "position: absolute; top: {}px; left: 0; right: 0; height: {}px; \
-                                                         background: #2a2d3e; pointer-events: none; z-index: 0;",
+                                                         background: #2a2d3e; pointer-events: none;",
                                                         top, ROW_HEIGHT
                                                     )
                                                 } else {
@@ -467,7 +467,7 @@ fn main() {
                                                             "position: absolute; top: {}px; left: 0; right: 0; \
                                                              display: flex; align-items: center; height: {}px; \
                                                              border-bottom: 1px solid #2a2a2a; cursor: pointer; \
-                                                             padding-right: 8px; overflow: hidden; z-index: 1;",
+                                                             padding-right: 8px; overflow: hidden;",
                                                             top, ROW_HEIGHT
                                                         )
                                                     },
